@@ -1,6 +1,9 @@
 package com.gotwingm.my.horizontalvideo;
 
 import android.app.Activity;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ConfigurationInfo;
+import android.content.res.Configuration;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.hardware.Camera;
@@ -179,10 +182,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
 
         switch (v.getId()) {
             case R.id.btnStart:
+                lockOrientation();
                 startRecorder();
                 break;
             case R.id.btnStop:
                 stopRecorder();
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
                 break;
         }
     }
@@ -207,6 +212,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
         } catch (IOException e) {
             e.printStackTrace();
             Toast.makeText(getApplicationContext(), e.toString(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void lockOrientation() {
+
+        if (getResources().getConfiguration().orientation ==
+                Configuration.ORIENTATION_LANDSCAPE) {
+
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+
+        } else {
+
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+
         }
     }
 
