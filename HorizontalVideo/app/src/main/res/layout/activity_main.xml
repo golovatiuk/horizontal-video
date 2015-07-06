@@ -4,8 +4,8 @@
     tools:context=".MainActivity">
 
     <SurfaceView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent"
         android:id="@+id/surfaceView"
         android:layout_centerVertical="true"
         android:layout_centerHorizontal="true" />
@@ -29,4 +29,23 @@
         android:layout_alignParentRight="true"
         android:layout_alignParentEnd="true"
         android:onClick="onClick" />
+
+    <FrameLayout
+        android:id="@+id/topFrame"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:alpha="0.5">
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/bottomFrame"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:alpha="0.5">
+    </FrameLayout>
+
 </RelativeLayout>

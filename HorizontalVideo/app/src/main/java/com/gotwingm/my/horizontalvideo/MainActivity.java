@@ -2,13 +2,10 @@ package com.gotwingm.my.horizontalvideo;
 
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
-import android.content.pm.ConfigurationInfo;
-import android.content.res.Configuration;
-import android.graphics.Matrix;
-import android.graphics.RectF;
 import android.hardware.Camera;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.DisplayMetrics;
@@ -20,11 +17,16 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.Toast;
+
+import com.netcompss.ffmpeg4android.CommandValidationException;
+import com.netcompss.loader.LoadJNI;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback, View.OnClickListener {
@@ -33,7 +35,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
     private SurfaceHolder surfaceHolder;
     private File video;
     private MediaRecorder videoRecorder;
-
+    private int videoHeight;
+    private int videoWidth;
+    private boolean isHorizontal;
 
     static Camera camera;
 
@@ -53,13 +57,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
         surfaceHolder.addCallback(this);
 
         File dir = Environment.getExternalStorageDirectory();
-        video = new File(dir, "video.3gp");
+        video = new File(dir, "in.mp4");
 
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+
+        Log.d("## --", "on resume, set surface size");
 
         camera = Camera.open(CAMERA_ID);
         setSurfaceSize();
@@ -112,38 +118,48 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
     void setSurfaceSize() {
 
         Display display = getWindowManager().getDefaultDisplay();
-
         DisplayMetrics displayMetrics = new DisplayMetrics();
         display.getMetrics(displayMetrics);
 
         Log.d("### -- display", displayMetrics.widthPixels + "X" + displayMetrics.heightPixels);
 
         Camera.Size cameraPreviewSizeForVideo =
-                camera.getParameters().getPreferredPreviewSizeForVideo();
+                getMaxPreviewSize(camera);
+
+        camera.getParameters().
+                setPreviewSize(cameraPreviewSizeForVideo.width,
+                        cameraPreviewSizeForVideo.height);
+
+        videoHeight = (camera.getParameters().getPreviewSize().height
+                / camera.getParameters().getPreviewSize().width)
+                * camera.getParameters().getPreviewSize().height;
+        videoWidth = camera.getParameters().getPreviewSize().height;
+
+
+        isHorizontal = displayMetrics.widthPixels > displayMetrics.heightPixels;
 
         Log.d("## -- camera preview", "" + cameraPreviewSizeForVideo.height + "X" + cameraPreviewSizeForVideo.width);
 
-        RectF rectDisplay = new RectF();
-        RectF rectPreview = new RectF();
+        if (isHorizontal) {
 
-        Matrix matrix = new Matrix();
+            surface.getLayoutParams().height = cameraPreviewSizeForVideo.height;
+            surface.getLayoutParams().width = cameraPreviewSizeForVideo.width;
 
-        rectDisplay.set(0, 0,
-                displayMetrics.widthPixels,
-                displayMetrics.heightPixels);
+        } else {
 
-        rectPreview.set(0, 0,
-                cameraPreviewSizeForVideo.width,
-                cameraPreviewSizeForVideo.height);
+            surface.getLayoutParams().height = cameraPreviewSizeForVideo.width;
+            surface.getLayoutParams().width = cameraPreviewSizeForVideo.height;
 
-        matrix.setRectToRect(rectPreview, rectDisplay, Matrix.ScaleToFit.START);
+            findViewById(R.id.topFrame).setLayoutParams(
+                    new FrameLayout.LayoutParams(displayMetrics.widthPixels,
+                            camera.getParameters().getPreviewSize().width / 4));
 
-        matrix.mapRect(rectPreview);
+            findViewById(R.id.bottomFrame).setLayoutParams(
+                    new FrameLayout.LayoutParams(displayMetrics.widthPixels, 100));
 
-        surface.getLayoutParams().height = (int) rectPreview.bottom;
-        surface.getLayoutParams().width = (int) rectPreview.right;
+        }
 
-        Log.d("## -- surface ", "" + (int) rectPreview.bottom + (int) rectPreview.right);
+        Log.d("## -- surface ", "" + surface.getLayoutParams().height + surface.getLayoutParams().width);
     }
 
     private void setCameraOrientation() {
@@ -203,6 +219,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
         videoRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
         videoRecorder.setProfile(CamcorderProfile
                 .get(CamcorderProfile.QUALITY_HIGH));
+        videoRecorder.setOrientationHint(videoHint());
         videoRecorder.setOutputFile(video.getAbsolutePath());
         videoRecorder.setPreviewDisplay(surface.getHolder().getSurface());
 
@@ -217,15 +234,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
 
     private void lockOrientation() {
 
-        if (getResources().getConfiguration().orientation ==
-                Configuration.ORIENTATION_LANDSCAPE) {
-
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-
-        } else {
-
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-
+        switch (getWindowManager().getDefaultDisplay().getRotation()) {
+            case Surface.ROTATION_0:
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                break;
+            case Surface.ROTATION_90:
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+                break;
+            case Surface.ROTATION_180:
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT);
+                break;
+            case Surface.ROTATION_270:
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE);
+                break;
         }
     }
 
@@ -239,7 +260,136 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
             videoRecorder = null;
             camera.lock();
 
+            if (isHorizontal) {
+
+                VideoProcessing vp = new VideoProcessing();
+                vp.execute();
+
+            }
+        }
+    }
+
+    private int videoHint() {
+
+        switch(getWindowManager().getDefaultDisplay().getRotation()) {
+            case Surface.ROTATION_0:
+                return 90;
+            case Surface.ROTATION_90:
+                return 0;
+            case Surface.ROTATION_180:
+                return 270;
+            case Surface.ROTATION_270:
+                return 180;
+            default:
+                return 0;
+        }
+    }
+
+    private class VideoProcessing extends AsyncTask<Void, Void, Void> {
+
+        String workFolder = getApplicationContext().getFilesDir().getAbsolutePath();
+
+        File rotatedVideoFile = new File(Environment.getExternalStorageDirectory() + "/out.avi");
+        File finalVideoFile = new File(Environment.getExternalStorageDirectory()
+                + "/" + System.currentTimeMillis() + ".avi");
+
+        private void rotateVideo() {
+
+            LoadJNI loadJNI = new LoadJNI();
+
+            String[] command = {"ffmpeg", "-i",
+                    video.getAbsolutePath(),
+                    "-vf", "rotate=PI/2",
+                    rotatedVideoFile.getAbsolutePath()};
+
+            Log.d("#### --", Arrays.toString(command));
+
+            try {
+                loadJNI.run(command, workFolder, getApplicationContext());
+            } catch (CommandValidationException e) {
+                e.printStackTrace();
+            }
+
         }
 
+        private void cropVideo() {
+
+            LoadJNI loadJNI = new LoadJNI();
+
+            String[] command = {"ffmpeg", "-i",
+                    rotatedVideoFile.getAbsolutePath(),
+                    "-vf",
+                    "crop=" + videoWidth + ":" + videoHeight,
+                    finalVideoFile.getAbsolutePath()};
+
+            Log.d("#### --", Arrays.toString(command));
+
+            try {
+                loadJNI.run(command, workFolder, getApplicationContext());
+            } catch (CommandValidationException e) {
+                e.printStackTrace();
+            }
+
+        }
+
+        @Override
+        protected Void doInBackground(Void... params) {
+
+            Log.d("## -- ", "do in background");
+
+            rotateVideo();
+            cropVideo();
+
+            return null;
+        }
+
+        protected void onPostExecute(Void result) {
+            super.onPostExecute(result);
+
+            Log.d("## --", "on post execute");
+
+            if (video.exists()) {
+
+                video.delete();
+
+            }
+
+            if (rotatedVideoFile.exists()) {
+
+                rotatedVideoFile.delete();
+
+            }
+
+            Toast.makeText(getApplicationContext(),
+                    "video saved to " + finalVideoFile.getAbsolutePath(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
+
+    private Camera.Size getMaxPreviewSize(Camera camera) {
+
+        Camera.Size maxSize = camera.getParameters().getPreviewSize();
+
+        Log.d("## -- ", "before preview size " + maxSize.width + "X" + maxSize.height);
+
+        ArrayList<Camera.Size> sizes = (ArrayList<Camera.Size>)
+                camera.getParameters().getSupportedPreviewSizes();
+
+        for (Camera.Size size : sizes) {
+
+            Log.d("## -- ", "preview size " + size.width + "X" + size.height);
+
+            if(size.height > maxSize.height && size.width > maxSize.width) {
+
+                maxSize = size;
+
+            }
+        }
+
+        Log.d("## -- ", "after preview size " + maxSize.width + "X" + maxSize.height);
+
+        return maxSize;
+
+    }
+
 }
