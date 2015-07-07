@@ -4,8 +4,8 @@
     tools:context=".MainActivity">
 
     <SurfaceView
-        android:layout_width="fill_parent"
-        android:layout_height="fill_parent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:id="@+id/surfaceView"
         android:layout_centerVertical="true"
         android:layout_centerHorizontal="true" />
@@ -36,7 +36,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
         android:layout_centerHorizontal="true"
-        android:alpha="0.5">
+        android:background="#80000000">
     </FrameLayout>
 
     <FrameLayout
@@ -45,7 +45,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
-        android:alpha="0.5">
+        android:background="#80000000">
     </FrameLayout>
 
 </RelativeLayout>

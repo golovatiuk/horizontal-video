@@ -5,7 +5,6 @@ import android.content.pm.ActivityInfo;
 import android.hardware.Camera;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.DisplayMetrics;
@@ -17,7 +16,7 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
+import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import com.netcompss.ffmpeg4android.CommandValidationException;
@@ -26,7 +25,6 @@ import com.netcompss.loader.LoadJNI;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback, View.OnClickListener {
@@ -35,8 +33,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
     private SurfaceHolder surfaceHolder;
     private File video;
     private MediaRecorder videoRecorder;
-    private int videoHeight;
-    private int videoWidth;
     private boolean isHorizontal;
 
     static Camera camera;
@@ -64,8 +60,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
     @Override
     protected void onResume() {
         super.onResume();
-
-        Log.d("## --", "on resume, set surface size");
 
         camera = Camera.open(CAMERA_ID);
         setSurfaceSize();
@@ -121,24 +115,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
         DisplayMetrics displayMetrics = new DisplayMetrics();
         display.getMetrics(displayMetrics);
 
-        Log.d("### -- display", displayMetrics.widthPixels + "X" + displayMetrics.heightPixels);
-
         Camera.Size cameraPreviewSizeForVideo =
                 getMaxPreviewSize(camera);
 
-        camera.getParameters().
-                setPreviewSize(cameraPreviewSizeForVideo.width,
-                        cameraPreviewSizeForVideo.height);
-
-        videoHeight = (camera.getParameters().getPreviewSize().height
-                / camera.getParameters().getPreviewSize().width)
-                * camera.getParameters().getPreviewSize().height;
-        videoWidth = camera.getParameters().getPreviewSize().height;
-
+        Camera.Parameters parameters = camera.getParameters();
+        parameters.setPreviewSize(cameraPreviewSizeForVideo.width,
+                cameraPreviewSizeForVideo.height);
+        camera.setParameters(parameters);
 
         isHorizontal = displayMetrics.widthPixels > displayMetrics.heightPixels;
 
-        Log.d("## -- camera preview", "" + cameraPreviewSizeForVideo.height + "X" + cameraPreviewSizeForVideo.width);
+        surface.getLayoutParams().height = cameraPreviewSizeForVideo.height;
+        surface.getLayoutParams().width = cameraPreviewSizeForVideo.width;
+
 
         if (isHorizontal) {
 
@@ -150,16 +139,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
             surface.getLayoutParams().height = cameraPreviewSizeForVideo.width;
             surface.getLayoutParams().width = cameraPreviewSizeForVideo.height;
 
-            findViewById(R.id.topFrame).setLayoutParams(
-                    new FrameLayout.LayoutParams(displayMetrics.widthPixels,
-                            camera.getParameters().getPreviewSize().width / 4));
+
+            RelativeLayout.LayoutParams params =
+                    new RelativeLayout.LayoutParams(displayMetrics.widthPixels,
+                            (camera.getParameters().getPreviewSize().width - 480) / 2);
+            params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+
+            findViewById(R.id.topFrame).setLayoutParams(params);
 
             findViewById(R.id.bottomFrame).setLayoutParams(
-                    new FrameLayout.LayoutParams(displayMetrics.widthPixels, 100));
+                    new RelativeLayout.LayoutParams(displayMetrics.widthPixels,
+                            (camera.getParameters().getPreviewSize().width - 480) / 2));
 
         }
-
-        Log.d("## -- surface ", "" + surface.getLayoutParams().height + surface.getLayoutParams().width);
     }
 
     private void setCameraOrientation() {
@@ -260,10 +252,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
             videoRecorder = null;
             camera.lock();
 
-            if (isHorizontal) {
+            if (!isHorizontal) {
 
                 VideoProcessing vp = new VideoProcessing();
-                vp.execute();
+                vp.run();
+                Toast.makeText(getApplicationContext(),
+                        "video saved to " + Environment.getExternalStorageDirectory(),
+                        Toast.LENGTH_LONG).show();
 
             }
         }
@@ -285,13 +280,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
         }
     }
 
-    private class VideoProcessing extends AsyncTask<Void, Void, Void> {
-
-        String workFolder = getApplicationContext().getFilesDir().getAbsolutePath();
-
-        File rotatedVideoFile = new File(Environment.getExternalStorageDirectory() + "/out.avi");
-        File finalVideoFile = new File(Environment.getExternalStorageDirectory()
-                + "/" + System.currentTimeMillis() + ".avi");
+    private class VideoProcessing implements Runnable {
 
         private void rotateVideo() {
 
@@ -300,12 +289,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
             String[] command = {"ffmpeg", "-i",
                     video.getAbsolutePath(),
                     "-vf", "rotate=PI/2",
-                    rotatedVideoFile.getAbsolutePath()};
-
-            Log.d("#### --", Arrays.toString(command));
+                    "sdcard/out.avi"};
 
             try {
-                loadJNI.run(command, workFolder, getApplicationContext());
+                loadJNI.run(command,
+                        getApplicationContext().getFilesDir().getAbsolutePath(),
+                        getApplicationContext());
             } catch (CommandValidationException e) {
                 e.printStackTrace();
             }
@@ -317,36 +306,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
             LoadJNI loadJNI = new LoadJNI();
 
             String[] command = {"ffmpeg", "-i",
-                    rotatedVideoFile.getAbsolutePath(),
+                    "sdcard/out.avi",
                     "-vf",
-                    "crop=" + videoWidth + ":" + videoHeight,
-                    finalVideoFile.getAbsolutePath()};
-
-            Log.d("#### --", Arrays.toString(command));
+                    "crop=480:320",
+                    "sdcard/" + System.currentTimeMillis() + ".avi"};
 
             try {
-                loadJNI.run(command, workFolder, getApplicationContext());
+                loadJNI.run(command,
+                        getApplicationContext().getFilesDir().getAbsolutePath(),
+                        getApplicationContext());
             } catch (CommandValidationException e) {
                 e.printStackTrace();
             }
 
         }
 
-        @Override
-        protected Void doInBackground(Void... params) {
-
-            Log.d("## -- ", "do in background");
-
-            rotateVideo();
-            cropVideo();
-
-            return null;
-        }
-
-        protected void onPostExecute(Void result) {
-            super.onPostExecute(result);
-
-            Log.d("## --", "on post execute");
+        protected void delRaw() {
 
             if (video.exists()) {
 
@@ -354,15 +329,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
 
             }
 
-            if (rotatedVideoFile.exists()) {
+            File out = new File(Environment.getExternalStorageDirectory(), "out.avi");
 
-                rotatedVideoFile.delete();
+            if (out.exists()) {
+
+                out.delete();
 
             }
+        }
 
-            Toast.makeText(getApplicationContext(),
-                    "video saved to " + finalVideoFile.getAbsolutePath(),
-                    Toast.LENGTH_LONG).show();
+        @Override
+        public void run() {
+
+            rotateVideo();
+            cropVideo();
+            delRaw();
         }
     }
 
@@ -379,14 +360,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Vi
 
             Log.d("## -- ", "preview size " + size.width + "X" + size.height);
 
-            if(size.height > maxSize.height && size.width > maxSize.width) {
+            if(size.height > maxSize.height || size.width > maxSize.width) {
 
                 maxSize = size;
 
             }
         }
 
-        Log.d("## -- ", "after preview size " + maxSize.width + "X" + maxSize.height);
+        Log.d("## -- ", "max preview size " + maxSize.width + "X" + maxSize.height);
 
         return maxSize;
 
